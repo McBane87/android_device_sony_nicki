@@ -41,16 +41,17 @@ TARGET_OTA_ASSERT_DEVICE := C1904,C1905,C2004,C2005,nicki
 TARGET_GLOBAL_CFLAGS += -mfpu=neon-vfpv4 -mfloat-abi=softfp
 TARGET_GLOBAL_CPPFLAGS += -mfpu=neon-vfpv4 -mfloat-abi=softfp
 COMMON_GLOBAL_CFLAGS += -D__ARM_USE_PLD -D__ARM_CACHE_LINE_SIZE=64
-COMMON_GLOBAL_CFLAGS += -DNEEDS_VECTORIMPL_SYMBOLS
 COMMON_GLOBAL_CFLAGS += -DSONY_CAM_PARAMS
+TARGET_GLOBAL_CPPFLAGS += -DNEEDS_VECTORIMPL_SYMBOLS
 
 # Kernel
-BOARD_KERNEL_CMDLINE := panic=3 console=ttyHSL0,115200,n8 androidboot.hardware=qcom user_debug=31 msm_rtb.filter=0x3F ehci-hcd.park=3
-BOARD_KERNEL_BASE := 0x80200000
-BOARD_KERNEL_PAGESIZE := 4096
-BOARD_MKBOOTIMG_ARGS := --ramdisk_offset 0x02000000
-TARGET_KERNEL_SOURCE := kernel/sony/msm8x27
-TARGET_KERNEL_CONFIG := cyanogenmod_nicki_defconfig
+TARGET_PREBUILT_KERNEL := device/sony/nicki/kernel
+#BOARD_KERNEL_CMDLINE := panic=3 console=ttyHSL0,115200,n8 androidboot.hardware=qcom user_debug=31 msm_rtb.filter=0x3F ehci-hcd.park=3
+#BOARD_KERNEL_BASE := 0x80200000
+#BOARD_KERNEL_PAGESIZE := 4096
+#BOARD_MKBOOTIMG_ARGS := --ramdisk_offset 0x02000000
+#TARGET_KERNEL_SOURCE := kernel/sony/msm8x27
+#TARGET_KERNEL_CONFIG := cyanogenmod_nicki_defconfig
 
 # Partitions
 TARGET_USERIMAGES_USE_EXT4 := true
@@ -70,7 +71,8 @@ BOARD_USES_QCOM_HARDWARE := true
 # QCOM Display and Graphics
 TARGET_QCOM_DISPLAY_VARIANT := caf
 TARGET_QCOM_MEDIA_VARIANT := caf
-TARGET_USES_QCOM_BSP := true
+#TARGET_USES_QCOM_BSP := true
+TARGET_USES_QCOM_BSP := false
 TARGET_DISPLAY_USE_RETIRE_FENCE := true
 
 # Audio
@@ -119,6 +121,8 @@ TARGET_RECOVERY_PIXEL_FORMAT := "RGBX_8888"
 BOARD_CUSTOM_BOOTIMG_MK := device/sony/nicki/custombootimg.mk
 BOARD_CUSTOM_RECOVERY_KEYMAPPING := ../../device/sony/nicki/recovery/recovery_keys.c
 TARGET_RECOVERY_LCD_BACKLIGHT_PATH := \"/sys/class/leds/lcd-backlight/brightness\"
+# TWRP flags
+DEVICE_RESOLUTION := 480x854
 
 # Override healthd HAL
 BOARD_HAL_STATIC_LIBRARIES := libhealthd.qcom

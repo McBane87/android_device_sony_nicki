@@ -16,3 +16,9 @@
 
 add_lunch_combo cm_nicki-eng
 add_lunch_combo cm_nicki-userdebug
+
+# Workaround
+mkdir -p out/target/product/nicki/obj/KERNEL_OBJ/usr/include
+cp -r hardware/qcom/msm8960/kernel-headers/* out/target/product/nicki/obj/KERNEL_OBJ/usr/include/
+touch out/target/product/nicki/obj/KERNEL_OBJ/usr/Makefile
+echo "@echo \"I'm only a Dummy-Makefile\"" > out/target/product/nicki/obj/KERNEL_OBJ/usr/Makefile
