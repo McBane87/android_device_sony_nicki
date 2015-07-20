@@ -1,0 +1,326 @@
+--- ../../Xperia-CM/cm11.0/twrp/android/system/bootable/recovery/minui/graphics.c	2015-07-20 09:14:39.663928699 +0200
++++ recovery/graphics/graphics.c	2015-07-20 11:30:23.736025006 +0200
+@@ -18,7 +18,6 @@
+ #include <stdlib.h>
+ #include <unistd.h>
+ 
+-#include <errno.h>
+ #include <fcntl.h>
+ #include <stdio.h>
+ 
+@@ -37,7 +36,7 @@
+ #include "font_10x18.h"
+ #endif
+ 
+-#include "minui.h"
++#include "../minui/minui.h"
+ 
+ #if defined(RECOVERY_BGRA)
+ #define PIXEL_FORMAT GGL_PIXEL_FORMAT_BGRA_8888
+@@ -52,10 +51,17 @@
+ 
+ #define NUM_BUFFERS 2
+ 
++/*
++ * For this device, the framebuffer start needs to be aligned to a 4096-byte
++ * boundary.
++ */
++#define FB_MEM_ALIGN 0x1000
++
+ typedef struct {
+-    GGLSurface* texture;
++    GGLSurface texture;
+     unsigned cwidth;
+     unsigned cheight;
++    unsigned ascent;
+ } GRFont;
+ 
+ static GRFont *gr_font = 0;
+@@ -75,15 +81,6 @@
+ static struct fb_var_screeninfo vi;
+ static struct fb_fix_screeninfo fi;
+ 
+-static bool has_overlay = false;
+-
+-bool target_has_overlay(char *version);
+-int free_ion_mem(void);
+-int alloc_ion_mem(unsigned int size);
+-int allocate_overlay(int fd, GGLSurface gr_fb[]);
+-int free_overlay(int fd);
+-int overlay_display_frame(int fd, GGLubyte* data, size_t size);
+-
+ static int get_framebuffer(GGLSurface *fb)
+ {
+     int fd;
+@@ -142,15 +139,11 @@
+         return -1;
+     }
+ 
+-    has_overlay = target_has_overlay(fi.id);
+-
+-    if (!has_overlay) {
+-        bits = mmap(0, fi.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+-        if (bits == MAP_FAILED) {
+-            perror("failed to mmap framebuffer");
+-            close(fd);
+-            return -1;
+-        }
++    bits = mmap(0, fi.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++    if (bits == MAP_FAILED) {
++        perror("failed to mmap framebuffer");
++        close(fd);
++        return -1;
+     }
+ 
+     overscan_offset_x = vi.xres * overscan_percent / 100;
+@@ -160,16 +153,20 @@
+     fb->width = vi.xres;
+     fb->height = vi.yres;
+     fb->stride = fi.line_length/PIXEL_SIZE;
++    fb->data = bits;
+     fb->format = PIXEL_FORMAT;
+-    if (!has_overlay) {
+-        fb->data = bits;
+-        memset(fb->data, 0, vi.yres * fi.line_length);
+-    }
++    memset(fb->data, 0, vi.yres * fi.line_length);
+ 
+     fb++;
+ 
++    /* Make sure the framebuffer is aligned to the specific boundary */
++    unsigned fb_size = vi.yres * fi.line_length;
++    if (fb_size % FB_MEM_ALIGN != 0) {
++        fb_size += FB_MEM_ALIGN - fb_size % FB_MEM_ALIGN;
++    }
++
+     /* check if we can use double buffering */
+-    if (vi.yres * fi.line_length * 2 > fi.smem_len)
++    if (fb_size * 2 > fi.smem_len)
+         return fd;
+ 
+     double_buffering = 1;
+@@ -178,11 +175,9 @@
+     fb->width = vi.xres;
+     fb->height = vi.yres;
+     fb->stride = fi.line_length/PIXEL_SIZE;
++    fb->data = (void*) (((unsigned) bits) + fb_size);
+     fb->format = PIXEL_FORMAT;
+-    if (!has_overlay) {
+-        fb->data = (void*) (((unsigned long) bits) + vi.yres * fi.line_length);
+-        memset(fb->data, 0, vi.yres * fi.line_length);
+-    }
++    memset(fb->data, 0, vi.yres * fi.line_length);
+ 
+     return fd;
+ }
+@@ -209,22 +204,19 @@
+ 
+ void gr_flip(void)
+ {
+-    if (-EINVAL == overlay_display_frame(gr_fb_fd, gr_mem_surface.data,
+-                                         (fi.line_length * vi.yres))) {
+-        GGLContext *gl = gr_context;
+-
+-        /* swap front and back buffers */
+-        if (double_buffering)
+-            gr_active_fb = (gr_active_fb + 1) & 1;
+-
+-        /* copy data from the in-memory surface to the buffer we're about
+-         * to make active. */
+-        memcpy(gr_framebuffer[gr_active_fb].data, gr_mem_surface.data,
+-               fi.line_length * vi.yres);
++    GGLContext *gl = gr_context;
+ 
+-        /* inform the display driver */
+-        set_active_framebuffer(gr_active_fb);
+-    }
++    /* swap front and back buffers */
++    if (double_buffering)
++        gr_active_fb = (gr_active_fb + 1) & 1;
++
++    /* copy data from the in-memory surface to the buffer we're about
++     * to make active. */
++    memcpy(gr_framebuffer[gr_active_fb].data, gr_mem_surface.data,
++           fi.line_length * vi.yres);
++
++    /* inform the display driver */
++    set_active_framebuffer(gr_active_fb);
+ }
+ 
+ void gr_color(unsigned char r, unsigned char g, unsigned char b, unsigned char a)
+@@ -249,25 +241,18 @@
+     *y = gr_font->cheight;
+ }
+ 
+-int gr_text(int x, int y, const char *s, ...)
+-{
+-    return gr_text_impl(x, y, s, 0);
+-}
+-
+-int gr_text_impl(int x, int y, const char *s, int bold)
++int gr_text(int x, int y, const char *s)
+ {
+     GGLContext *gl = gr_context;
+     GRFont *font = gr_font;
+     unsigned off;
+ 
+-    if (!font->texture) return x;
+-
+-    bold = bold && (font->texture->height != font->cheight);
+-
+     x += overscan_offset_x;
+     y += overscan_offset_y;
+ 
+-    gl->bindTexture(gl, font->texture);
++    y -= font->ascent;
++
++    gl->bindTexture(gl, &font->texture);
+     gl->texEnvi(gl, GGL_TEXTURE_ENV, GGL_TEXTURE_ENV_MODE, GGL_REPLACE);
+     gl->texGeni(gl, GGL_S, GGL_TEXTURE_GEN_MODE, GGL_ONE_TO_ONE);
+     gl->texGeni(gl, GGL_T, GGL_TEXTURE_GEN_MODE, GGL_ONE_TO_ONE);
+@@ -276,8 +261,7 @@
+     while((off = *s++)) {
+         off -= 32;
+         if (off < 96) {
+-            gl->texCoord2i(gl, (off * font->cwidth) - x,
+-                           (bold ? font->cheight : 0) - y);
++            gl->texCoord2i(gl, (off * font->cwidth) - x, 0 - y);
+             gl->recti(gl, x, y, x + font->cwidth, y + font->cheight);
+         }
+         x += font->cwidth;
+@@ -355,40 +339,31 @@
+ 
+ static void gr_init_font(void)
+ {
+-    gr_font = calloc(sizeof(*gr_font), 1);
++    GGLSurface *ftex;
++    unsigned char *bits, *rle;
++    unsigned char *in, data;
+ 
+-    int res = res_create_surface("font", (void**)&(gr_font->texture));
+-    if (res == 0) {
+-        // The font image should be a 96x2 array of character images.  The
+-        // columns are the printable ASCII characters 0x20 - 0x7f.  The
+-        // top row is regular text; the bottom row is bold.
+-        gr_font->cwidth = gr_font->texture->width / 96;
+-        gr_font->cheight = gr_font->texture->height / 2;
+-    } else {
+-        printf("failed to read font: res=%d\n", res);
+-
+-        // fall back to the compiled-in font.
+-        gr_font->texture = malloc(sizeof(*gr_font->texture));
+-        gr_font->texture->width = font.width;
+-        gr_font->texture->height = font.height;
+-        gr_font->texture->stride = font.width;
+-
+-        unsigned char* bits = malloc(font.width * font.height);
+-        gr_font->texture->data = (void*) bits;
+-
+-        unsigned char data;
+-        unsigned char* in = font.rundata;
+-        while((data = *in++)) {
+-            memset(bits, (data & 0x80) ? 255 : 0, data & 0x7f);
+-            bits += (data & 0x7f);
+-        }
++    gr_font = calloc(sizeof(*gr_font), 1);
++    ftex = &gr_font->texture;
+ 
+-        gr_font->cwidth = font.cwidth;
+-        gr_font->cheight = font.cheight;
+-    }
++    bits = malloc(font.width * font.height);
+ 
+-    // interpret the grayscale as alpha
+-    gr_font->texture->format = GGL_PIXEL_FORMAT_A_8;
++    ftex->version = sizeof(*ftex);
++    ftex->width = font.width;
++    ftex->height = font.height;
++    ftex->stride = font.width;
++    ftex->data = (void*) bits;
++    ftex->format = GGL_PIXEL_FORMAT_A_8;
++
++    in = font.rundata;
++    while((data = *in++)) {
++        memset(bits, (data & 0x80) ? 255 : 0, data & 0x7f);
++        bits += (data & 0x7f);
++    }
++
++    gr_font->cwidth = font.cwidth;
++    gr_font->cheight = font.cheight;
++    gr_font->ascent = font.cheight - 2;
+ }
+ 
+ int gr_init(void)
+@@ -419,10 +394,9 @@
+     fprintf(stderr, "framebuffer: fd %d (%d x %d)\n",
+             gr_fb_fd, gr_framebuffer[0].width, gr_framebuffer[0].height);
+ 
+-    /* start with 0 as front (displayed) and 1 as back (drawing) */
++        /* start with 0 as front (displayed) and 1 as back (drawing) */
+     gr_active_fb = 0;
+-    if (!has_overlay)
+-        set_active_framebuffer(0);
++    set_active_framebuffer(0);
+     gl->colorBuffer(gl, &gr_mem_surface);
+ 
+     gl->activeTexture(gl, 0);
+@@ -432,17 +406,11 @@
+     gr_fb_blank(true);
+     gr_fb_blank(false);
+ 
+-    if (!alloc_ion_mem(fi.line_length * vi.yres))
+-        allocate_overlay(gr_fb_fd, gr_framebuffer);
+-
+     return 0;
+ }
+ 
+ void gr_exit(void)
+ {
+-    free_overlay(gr_fb_fd);
+-    free_ion_mem();
+-
+     close(gr_fb_fd);
+     gr_fb_fd = -1;
+ 
+@@ -470,41 +438,9 @@
+ 
+ void gr_fb_blank(bool blank)
+ {
+-#if defined(TW_NO_SCREEN_BLANK) && defined(TW_BRIGHTNESS_PATH) && defined(TW_MAX_BRIGHTNESS)
+-    int fd;
+-    char brightness[4];
+-    snprintf(brightness, 4, "%03d", TW_MAX_BRIGHTNESS/2);
+-
+-    fd = open(TW_BRIGHTNESS_PATH, O_RDWR);
+-    if (fd < 0) {
+-        perror("cannot open LCD backlight");
+-        return;
+-    }
+-    write(fd, blank ? "000" : brightness, 3);
+-    close(fd);
+-#else
+     int ret;
+-    if (blank)
+-        free_overlay(gr_fb_fd);
+ 
+     ret = ioctl(gr_fb_fd, FBIOBLANK, blank ? FB_BLANK_POWERDOWN : FB_BLANK_UNBLANK);
+     if (ret < 0)
+         perror("ioctl(): blank");
+-
+-    if (!blank)
+-        allocate_overlay(gr_fb_fd, gr_framebuffer);
+-#endif
+-}
+-
+-void gr_get_memory_surface(gr_surface surface)
+-{
+-    get_memory_surface( (GGLSurface*) surface);
+ }
+-
+-// These are new graphics functions from 5.0 that were not available in
+-// 4.4 that are required by charger and healthd
+-void gr_clear()
+-{
+-	return;
+-}
+-
