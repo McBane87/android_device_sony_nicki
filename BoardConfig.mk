@@ -121,8 +121,16 @@ TARGET_RECOVERY_PIXEL_FORMAT := "RGBX_8888"
 BOARD_CUSTOM_BOOTIMG_MK := device/sony/nicki/custombootimg.mk
 BOARD_CUSTOM_RECOVERY_KEYMAPPING := ../../device/sony/nicki/recovery/recovery_keys.c
 TARGET_RECOVERY_LCD_BACKLIGHT_PATH := \"/sys/class/leds/lcd-backlight/brightness\"
+BOARD_CUSTOM_GRAPHICS := ../../../device/sony/nicki/recovery/graphics/graphics.c
+
 # TWRP flags
-DEVICE_RESOLUTION := 480x854
+# Using the real Resolutions (480x854) results in weird looking TWRP
+DEVICE_RESOLUTION := 1080x1920
+RECOVERY_SDCARD_ON_DATA := true
+TW_HAS_NO_RECOVERY_PARTITION := true
+TW_FLASH_FROM_STORAGE := true
+TW_INCLUDE_FUSE_EXFAT := true
+TW_BOARD_CUSTOM_GRAPHICS := ../../../device/sony/nicki/recovery/graphics/twrpgraphics.c
 
 # Override healthd HAL
 BOARD_HAL_STATIC_LIBRARIES := libhealthd.qcom
